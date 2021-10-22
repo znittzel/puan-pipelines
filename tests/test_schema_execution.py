@@ -255,3 +255,30 @@ def test_run_schema_as_far_as_possible_while_can_be_completed():
         assert executed["y"] == 4
     except Exception as e:
         assert False, str(e)    
+
+def test_non_async_functions():
+
+    def f(x, y):
+        return x+y
+
+    def g(x):
+        return x*2
+
+    memory = {
+        "a": 1,
+        "b": 2
+    }
+    schema = {
+        "x": ("f", (("a", "x"), ("b", "y"))),
+        "y": ("g", (("x", "x"),)),
+    }
+    functions = {
+        "f": f,
+        "g": g,
+    }    
+
+    try:
+        executed = asyncio.run(ourpipes.execute_schema(functions, schema, memory, 'y'))
+        assert executed == 6
+    except Exception as e:
+        assert False, str(e)  

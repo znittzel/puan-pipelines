@@ -32,7 +32,11 @@ def default_sequential_function_wrapper(fn_name: str, functions: dict, args, kwa
         if not fn_name in functions:
             return Exception(f"function '{fn_name}' does not exists")
 
-        return await functions[fn_name](*args, **kwargs)
+        fn = functions[fn_name]
+        if inspect.iscoroutinefunction(fn):
+            return await fn(*args, **kwargs)
+        else:
+            return fn(*args, **kwargs)
 
     return asyncio.create_task(wrap_fn(fn_name, functions, *args, **kwargs))
 
