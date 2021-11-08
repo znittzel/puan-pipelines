@@ -1,4 +1,5 @@
 
+import functools
 import asyncio
 import inspect
 import itertools
@@ -6,7 +7,7 @@ import gzip
 import pickle
 
 from toposort import toposort
-from typing import Callable, Tuple
+from typing import Callable, Tuple, Any
 
 def schema2execution_order(schema: dict) -> iter:
     return toposort(
@@ -274,3 +275,157 @@ def compress_pipeline(compression_name: str, schema: dict, memory: dict, extract
             'extract_key': extract_key,
         },
     )
+
+def schema2arguments(schema: dict) -> list:
+
+    """
+        Variables that are defined as function inputs,
+        but are not declared as expecting from a function
+        output, is called an argument.
+
+        Return:
+            list
+    """
+
+    return list({
+        (i,j): input_name
+        for i, (output, fn_params) in enumerate(schema.items())
+        for j, (input_name, _) in enumerate(fn_params[1])
+        if not input_name in schema
+    }.values())
+
+def schema2signature(schema: dict, functions: dict) -> tuple:
+
+    """
+        Returns some kind of artificial function
+        signature from schema. The tuple consists
+        of input argument names and return types.
+
+        Return:
+            Tuple[List[str], List[str]]
+    """
+    
+    # Find all inputs that does not exists as a function
+    # in schema
+    arguments = schema2arguments(schema)
+    execution_order = list(list(schema2execution_order(schema))[-1])
+    return_types = [
+        str(inspect.signature(functions[schema[output_name][0]]).return_annotation)
+        for output_name in execution_order
+    ]
+
+    return (arguments, return_types)
+
+def automake_memory(schema: dict, args: list = [], kwargs: dict = {}) -> dict:
+
+    """
+        Will generate schema memory input based on positional and keyword arguments.
+        NOTE kwargs are in higher order than args and therefore preferred.
+
+        Return:
+            dict
+    """
+    arguments = schema2arguments(schema)
+    for i, arg in enumerate(filter(lambda arg: arg not in kwargs, arguments)):
+        if len(args) > i:
+            kwargs[arg] = args[i]
+
+    return kwargs
+
+def compile_schema_async(
+    name: str, 
+    functions: dict, 
+    schema: dict, 
+    executor: Callable,
+    description: str = "",
+) -> Callable:
+
+    """
+        Compiling schema, functions and an executor into a virtual async function with name `name`.
+
+        Return:
+            Callable[dict]
+    """
+
+    def async_compiler(functions: dict, schema: dict, executor: Callable) -> Callable:
+
+        async def wrap_executor(*args, **kwargs) -> Any:
+            return await executor(
+                functions=functions, 
+                schema=schema, 
+                memory=automake_memory(
+                    schema=schema, 
+                    args=args, 
+                    kwargs=kwargs,
+                ),
+            )
+        
+        wrap_executor.__name__ = name
+        wrap_executor.__qualname__ = name
+        wrap_executor.__doc__ = description
+        return wrap_executor
+
+    return async_compiler(functions, schema, executor)
+
+def funstr2schema(funstr: str) -> dict:
+
+    """
+        A `funstr` is a functional-string, containing information
+        of a schema in one string, written in a certain way.
+
+        Explinations: 
+            Let funstr = (a:x, b:y) -> f:x. (c:x) -> g. (f:x, g:y) -> h:y 
+            (:x, :y) -> f mening that f is expected to have x, y as keyword
+            input. (a:x, b:y) mening variable a maps to x, and variable b to y.
+            (:, :) -> f meaning that f is expected to have two positional arg inputs.
+            f:x meaning that result from ... -> f will be stored in variable x.
+            Dot (.) meaning end of statement.
+    """
+
+    try:
+        schema = {}
+        statements = funstr.replace(" ", "").split(".")
+        for statement in statements:
+            arguments_string, function_string = statement.split("->")
+            poskey_arguments = arguments_string.replace("(", "").replace(")", "").split(",")
+            arguments = [tuple(arg.split(':')) for arg in poskey_arguments]
+            fn_name, outvar = function_string.split(":")
+
+            schema[outvar] = (fn_name, arguments)
+        
+        return schema
+    except Exception as e:
+        raise Exception(f"could not create schema from function-string '{funstr}' because of error: {e}")
+
+def fns2dict(*functions) -> dict:
+
+    """
+        Returns a dictionary of function name -> function,
+        given functions as *arguments.
+
+        Return:
+            Dict[str, Callable]
+    """
+
+    return {f.__name__: f for f in functions}
+
+def cut_schema(schema: dict, start: int = 0, stop: int = None) -> dict:
+
+    """
+        Cut schema from point `start` to point `stop`.
+        Starts default is 0, and stops default is at end.
+
+        Return:
+            dict (schema)
+    """
+    
+    schema_order = list(schema2execution_order(schema))
+    stop = stop if stop is not None else len(schema_order)
+
+    schema_order_cut = schema_order[start:stop]
+    schema_cut = {
+        k: v
+        for k, v in schema.items()
+        if any((k in fns for fns in schema_order_cut))
+    }
+    return schema_cut
