@@ -506,3 +506,19 @@ def test_run_schema_with_insufficient_functions():
         assert isinstance(result['z'], Exception)
     except Exception as e:
         assert False, str(e)
+
+def test_funstr2schema_as_positional_arguments():
+
+    def f(x):
+        return x+1
+
+    def g(x): 
+        return x+2
+
+    functions = ourpipes.fns2dict(f, g)
+    try:
+        schema = ourpipes.funstr2schema("(x) -> f:y. (y) -> g:z")
+        result = asyncio.run(ourpipes.execute_schema(functions, schema, {"x": 2}))
+        assert result['z'] == 5
+    except Exception as e:
+        assert False, str(e)

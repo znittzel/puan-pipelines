@@ -141,7 +141,7 @@ async def execute_schema(
                                 fn_name=schema[variable][0], 
                                 functions=functions,
                                 args=(
-                                    memory[var]
+                                    memory[var[0]]
                                     for var in filter(
                                         lambda x: len(x) == 1,
                                         schema[variable][1]
