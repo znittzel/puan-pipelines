@@ -522,3 +522,97 @@ def test_funstr2schema_as_positional_arguments():
         assert result['z'] == 5
     except Exception as e:
         assert False, str(e)
+
+def test_local_constants_into_memory():
+
+    try:
+        schema = {
+            "x": [
+                "f",
+                [
+                    ["a", "x"],
+                    ["b", "y"]
+                ],
+                {
+                    "a": 1
+                }
+            ]
+        }
+        new_memory = ourpipes.local_constants2memory({}, schema)
+        assert new_memory['x.f.a'] == 1
+    except Exception as e:
+        assert False, str(e)
+
+def test_local_constants_into_memory_with_conflicting_variable_overriding():
+
+    try:
+        schema = {
+            "x": [
+                "f",
+                [
+                    ["a", "x"]
+                ],
+                {
+                    "a": 1
+                }
+            ]
+        }
+        new_memory = ourpipes.local_constants2memory({'a': 2}, schema)
+        assert new_memory['x.f.a'] == 1
+    except Exception as e:
+        assert False, str(e)
+
+def test_local_constants_into_memory_with_conflicting_variable_not_overriding():
+
+    try:
+        schema = {
+            "x": [
+                "f",
+                [
+                    ["a", "x"]
+                ],
+                {
+                    "a": 1
+                }
+            ]
+        }
+        new_memory = ourpipes.local_constants2memory({'x.f.a': 2}, schema, override=False)
+        assert new_memory['x.f.a'] == 2
+    except Exception as e:
+        assert False, str(e)
+
+def test_compute_schema_with_local_constants():
+
+    def f(x):
+        return x+1
+
+    def g(x, y): 
+        return x+y
+
+    functions = ourpipes.fns2dict(f, g)
+    schema = {
+        "x": [
+            "f",
+            [
+                ["a", "x"]
+            ],
+            {
+                "a": 1
+            }
+        ],
+        "y": [
+            "g",
+            [
+                ["x", "x"],
+                ["b", "y"]
+            ],
+            {
+                "b": 2
+            }
+        ]
+    }
+    try:
+        result = asyncio.run(ourpipes.execute_schema(functions, schema, {}))
+        assert result['y'] == 4
+    except Exception as e:
+        assert False, str(e)

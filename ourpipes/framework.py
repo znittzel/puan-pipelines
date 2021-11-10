@@ -41,7 +41,7 @@ def default_sequential_function_wrapper(fn_name: str, functions: dict, args, kwa
 
     return asyncio.create_task(wrap_fn(fn_name, functions, *args, **kwargs))
 
-async def default_paralell_function_executor(*fns, **kwargs):
+async def default_parallel_function_executor(*fns, **kwargs):
 
     """
         Uses asyncio to compute a list of functions.
@@ -64,13 +64,87 @@ async def asyncfn_executor_wrapper(fn, *args, **kwargs):
 
     return await fn(*args, **kwargs) if inspect.iscoroutinefunction(fn) else fn(*args, **kwargs)
 
+def select_function(fn_name: str, functions: dict) -> Callable:
+
+    """
+        Selecting function wrapper needed for when there's a
+        key error in functions, just to append more info into
+        the exception
+    """
+    if not fn_name in functions:
+        return Exception(f"service doesn't offer function '{fn_name}'")
+
+    return functions[fn_name]
+
+def from_dicts(key: str, *dicts, default: Any = None):
+
+    """
+        Returns value of key in first matchning dict.
+        If not matching dict, default value is returned.
+
+        Return:
+            Any
+    """
+    for d in dicts:
+        if key in d:
+            return d[key]
+
+    return default
+
+def from_lists(index: int, *lists, default: Any = {}):
+
+    """
+        Returns value of index in first matching list
+        having index `index`. If no match, default
+        is returned.
+
+        Return:
+            Any
+    """
+    for lst in lists:
+        if len(lst) > index:
+            return lst[index]
+
+    return default
+
+def local_constants2memory(memory: dict, schema: dict, override: bool = True) -> dict:
+
+    """
+        Checks for local constants in schema and transfer
+        them into memory. If constant is already in memory, and `override`
+        is set to true, value will be replaces. If false, it will not
+        be replaced.
+
+        Return:
+            dict: memory
+    """
+
+    for var, fn_args in schema.items():
+        fn_name, args = fn_args[0], fn_args[1]
+        local_mem = from_lists(2, *[fn_args])
+
+        if len(local_mem) > 0:
+            for i, arg_key in enumerate(map(lambda x: x[0], args)):
+                if arg_key in local_mem:
+                    new_arg_key = ".".join([var, fn_name, arg_key])
+
+                    # Only if override is True OR new_arg_key is not in memory already
+                    if override or new_arg_key not in memory:
+                        memory[new_arg_key] = local_mem[arg_key]
+
+                    schema[var][1][i][0] = new_arg_key
+
+    return memory
+
+
+
 async def execute_schema(
     functions: dict,
     schema: dict, 
     memory: dict, 
     extract_key: str = None,
 
-    paralell_function_executor: Callable = default_paralell_function_executor, 
+    paralell_function_executor: Callable = default_parallel_function_executor, 
     sequential_function_wrapper: Callable = default_sequential_function_wrapper,
 ) -> Tuple[str, dict]:
 
@@ -111,19 +185,9 @@ async def execute_schema(
             Tuple[str, dict]
     """
 
-    def select_function(fn_name: str, functions: dict) -> Callable:
-
-        """
-            Selecting function wrapper needed for when there's a
-            key error in functions, just to append more info into
-            the exception
-        """
-        if not fn_name in functions:
-            return Exception(f"service doesn't offer function '{fn_name}'")
-
-        return functions[fn_name]
-
+    memory = local_constants2memory(memory, schema)
     execution_order = schema2execution_order(schema)
+    
     for i, fn_pars in enumerate(execution_order):
 
         # Update memory
