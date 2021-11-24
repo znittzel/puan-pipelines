@@ -480,6 +480,49 @@ def test_compile_function_and_use_in_other_schema():
     except Exception as e:
         assert False, str(e)
 
+def test_compile_function_use_in_other_schema_with_local_variables():
+
+    def f(x, y):
+        return x+y
+
+    def g(x, y):
+        return x*y
+
+    functions = ourpipes.fns2dict(f, g)
+    try:
+        add_mul_add = ourpipes.compile_schema_async(
+            name="add_mul_add", 
+            functions=functions, 
+            schema={
+                "x": ["f", [["a", "x"], ["b", "y"]], {"b": 2}],
+                "y": ["g", [["a", "x"], ["b", "y"]], {"b": 3}],
+                "z": ["f", [["x", "x"], ["y", "y"]]]
+            }, 
+            executor=async_partial(
+                ourpipes.execute_schema,
+                extract_key="z",
+            ),
+        )
+
+        functions[add_mul_add.__name__] = add_mul_add
+        compiled = ourpipes.compile_schema_async(
+            name="final_fn", 
+            functions=functions, 
+            schema={
+                "x": ["add_mul_add", [["a", "a"]]], # no b here since it is in last schemas locals
+                "y": ["g", [["x", "x"], ["c", "y"]]]
+            }, 
+            executor=async_partial(
+                ourpipes.execute_schema,
+                extract_key="y",
+            ),
+        )
+
+        result = asyncio.run(compiled(a=1, c=3))
+        assert result == 18
+    except Exception as e:
+        assert False, str(e)
+
 def test_cut_schema():
 
     try:
@@ -616,3 +659,60 @@ def test_compute_schema_with_local_constants():
         assert result['y'] == 4
     except Exception as e:
         assert False, str(e)
+
+def test_schema2arguments_with_local_constants():
+
+    def x(m):
+        return m+1
+
+    try:
+        assert len(ourpipes.schema2arguments({
+            "x": ["x", [["a"]], {"a": 1}],
+            "y": ["x", [["x"]]]
+        })) == 0
+
+        assert len(ourpipes.schema2arguments({
+            "x": ["x", [["a"]]],
+            "y": ["x", [["x"]], {"x": 1}]
+        })) == 1
+
+        assert len(ourpipes.schema2arguments({
+            "x": ["x", [["a"]]],
+            "y": ["x", [["b"]]],
+            "z": ["x", [["c"]]]
+        })) == 3
+    except Exception as e:
+        assert False, str(e)
+
+def test_function_does_not_exists():
+
+    def f(x):
+        return x+1
+
+    schema = {
+        "x": ["f", [["a"]]],
+        "y": ["g", [["b"]]],
+    }
+
+    try:
+        functions = ourpipes.fns2dict(f)
+        results = asyncio.run(ourpipes.execute_schema(functions, schema, {"a": 1, "b": 2}))
+        assert isinstance(results['y'], Exception)
+    except Exception as e:
+        assert False, str(e)
+
+def test_argument_is_not_provided_when_asked():
+
+    def f(x):
+        return x+1
+
+    schema = {
+        "x": ["f", [["a"]]],
+        "y": ["g", [["b"]]],
+    }
+
+    try:
+        functions = ourpipes.fns2dict(f)
+        asyncio.run(ourpipes.execute_schema(functions, schema, {}))
+    except Exception as e:
+        assert True, str(e)

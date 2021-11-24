@@ -185,6 +185,15 @@ async def execute_schema(
             Tuple[str, dict]
     """
 
+    def read_function_from_variable(schema: dict, variable: str):
+
+        try:
+            return schema[variable][0]
+        except KeyError:
+            raise Exception(f"value for variable '{variable}' must be provided either in function result or in memory")
+        except Exception as e:
+            return e
+
     memory = local_constants2memory(memory, schema)
     execution_order = schema2execution_order(schema)
     
@@ -202,7 +211,7 @@ async def execute_schema(
                     await paralell_function_executor(
                         *map(
                             lambda variable: sequential_function_wrapper(
-                                fn_name=schema[variable][0], 
+                                fn_name=read_function_from_variable(schema, variable), 
                                 functions=functions,
                                 args=(
                                     memory[var[0]]
@@ -352,10 +361,10 @@ def schema2arguments(schema: dict) -> list:
     """
 
     return list({
-        (i,j): input_name
+        (i,j): inputs[0]
         for i, (output, fn_params) in enumerate(schema.items())
-        for j, (input_name, _) in enumerate(fn_params[1])
-        if not input_name in schema
+        for j, inputs in enumerate(fn_params[1])
+        if not (inputs[0] in schema or inputs[0] in (fn_params[2] if len(fn_params) >= 3 else {}))
     }.values())
 
 def schema2signature(schema: dict, functions: dict) -> tuple:
